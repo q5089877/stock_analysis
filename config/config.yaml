@@ -1,0 +1,29 @@
+# config/config.yaml
+
+# 資料庫連線設定（SQLAlchemy URI 格式）
+database:
+  url: postgresql://user:password@localhost:5432/stockdb
+
+# 檔案路徑設定
+paths:
+  raw_data: ./data/raw
+  processed_data: ./data/processed
+  sqlite: output/twse.db
+
+# TWSE API URL 範本
+twse:
+  url_template: "https://www.twse.com.tw/exchangeReport/MI_INDEX?response=csv&date={date}&type=ALLBUT0999"
+
+# TPEx API URL 範本
+tpex:
+  url_template: "https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php?d={roc_date}&l=zh-tw&o=csv"
+
+# 日誌等級
+logging:
+  level: INFO
+
+twse_institutional:
+  url_template: "https://www.twse.com.tw/fund/T86?response=csv&date={date}&selectType=ALLBUT0999"
+
+tpex_institutional:
+  url_template: "https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_download.php?l=zh-tw&d={roc_date}"
