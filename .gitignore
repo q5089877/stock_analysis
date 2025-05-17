@@ -1,0 +1,17 @@
+# 忽略所有 .log 檔案
+*.log
+
+# 忽略整個資料夾
+/bin/
+/obj/
+
+# 忽略 VS 或 JetBrains 設定檔
+.vs/
+.idea/
+
+# 忽略的檔案
+*.env
+*.csv
+*.db
+*.zip
+~.*

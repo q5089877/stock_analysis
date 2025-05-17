@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import sqlite3
 
+
 def import_institutional_csv_to_sqlite(csv_path: str, sqlite_path: str, table_name: str = "institutional_chip"):
     """
     將 TWSE 三大法人買賣超 CSV 清洗並匯入 SQLite
@@ -31,7 +32,8 @@ def import_institutional_csv_to_sqlite(csv_path: str, sqlite_path: str, table_na
     # 清理代號與數值欄位
     df["證券代號"] = df["證券代號"].astype(str).str.extract(r'(\d+)')
     for col in ["外資買賣超", "投信買賣超", "自營商買賣超", "三大法人合計"]:
-        df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ""), errors="coerce").fillna(0).astype(int)
+        df[col] = pd.to_numeric(df[col].astype(str).str.replace(
+            ",", ""), errors="coerce").fillna(0).astype(int)
 
     # 加入日期欄位
     df["日期"] = date_str
