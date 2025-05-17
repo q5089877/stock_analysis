@@ -2,11 +2,12 @@ import os
 import sqlite3
 import pandas as pd
 
-def import_tpex_csv_to_sqlite(
+
+def import_tpex_price_sql(
     csv_path: str,
     sqlite_path: str,
     table_name: str = "tpex_chip",
-    date_str: str = None
+    date_str: str = ''
 ):
     """
     將 TPEx 行情 CSV 清洗並匯入 SQLite
@@ -57,10 +58,12 @@ def import_tpex_csv_to_sqlite(
     df = df[list(wanted.keys())].rename(columns=wanted)
 
     # 5. 轉換數值欄位
-    for col in ['收盤價','開盤價','最高價','最低價']:
+    for col in ['收盤價', '開盤價', '最高價', '最低價']:
         df[col] = pd.to_numeric(df[col].str.replace(',', ''), errors='coerce')
-    df['成交股數']   = pd.to_numeric(df['成交股數'].str.replace(',', ''), errors='coerce').fillna(0).astype(int)
-    df['成交金額']   = pd.to_numeric(df['成交金額'].str.replace(',', ''), errors='coerce').fillna(0).astype(int)
+    df['成交股數'] = pd.to_numeric(df['成交股數'].str.replace(
+        ',', ''), errors='coerce').fillna(0).astype(int)
+    df['成交金額'] = pd.to_numeric(df['成交金額'].str.replace(
+        ',', ''), errors='coerce').fillna(0).astype(int)
 
     # 6. 加入日期欄
     if date_str:
@@ -100,6 +103,10 @@ def import_tpex_csv_to_sqlite(
             INSERT OR IGNORE INTO {table_name}
             SELECT * FROM {temp};
         """)
+        conn.commit()
+
+        # ✅ 加上清除 temp 表
+        cur.execute(f"DROP TABLE IF EXISTS {temp};")
         conn.commit()
 
     print(f"✅ {date_str or ''} 匯入 {table_name} 成功，共 {len(df)} 筆")

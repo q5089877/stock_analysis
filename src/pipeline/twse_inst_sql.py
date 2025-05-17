@@ -3,7 +3,7 @@ import pandas as pd
 import sqlite3
 
 
-def import_institutional_csv_to_sqlite(csv_path: str, sqlite_path: str, table_name: str = "institutional_chip"):
+def import_inst_sql(csv_path: str, sqlite_path: str, table_name: str = "twse_institutional_chip"):
     """
     將 TWSE 三大法人買賣超 CSV 清洗並匯入 SQLite
     """
@@ -66,6 +66,10 @@ def import_institutional_csv_to_sqlite(csv_path: str, sqlite_path: str, table_na
             INSERT OR IGNORE INTO {table_name}
             SELECT * FROM {table_name}_temp;
         """)
+        conn.commit()
+
+        # ✅ 插入完成後清除 temp 表，避免殘留
+        cursor.execute(f"DROP TABLE IF EXISTS {table_name + "_temp"};")
         conn.commit()
 
     print(f"✅ {date_str} 匯入成功，共 {len(df)} 筆")

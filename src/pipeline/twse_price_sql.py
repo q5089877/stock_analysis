@@ -5,7 +5,7 @@ import csv
 from io import StringIO
 
 
-def import_twse_csv_to_sqlite(csv_path: str, sqlite_path: str, table_name: str = "twse_chip", date_str: str = ""):
+def import_twse_price_sql(csv_path: str, sqlite_path: str, table_name: str = "twse_chip", date_str: str = ""):
     """
     將 TWSE 原始 CSV 匯入 SQLite 資料庫（自動清洗、去重與追加），並加上日期欄位
     """
@@ -88,6 +88,10 @@ def import_twse_csv_to_sqlite(csv_path: str, sqlite_path: str, table_name: str =
             INSERT OR IGNORE INTO {table_name}
             SELECT * FROM {table_name}_temp
         """)
+        conn.commit()
+
+        # ✅ 插入完成後清除 temp 表，避免殘留
+        cursor.execute(f"DROP TABLE IF EXISTS {table_name + "_temp"};")
         conn.commit()
 
     print(f"✅ {date_str} 匯入成功：{len(df)} 筆")

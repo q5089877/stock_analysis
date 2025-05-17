@@ -1,3 +1,6 @@
+from src.pipeline.twse_price_sql import import_twse_price_sql  # 前面建立的清洗函式
+from src.utils.helpers import load_config
+from src.pipeline.downloader import TWSEDownloader
 import sys
 import os
 import argparse
@@ -5,14 +8,12 @@ from datetime import datetime, timedelta
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from src.pipeline.downloader import TWSEDownloader
-from src.utils.helpers import load_config
-from src.pipeline.twse_to_sqlite import import_twse_csv_to_sqlite  # 前面建立的清洗函式
 
 def daterange(start_date, end_date):
     """產生日期區間生成器（含 start 與 end）"""
     for n in range((end_date - start_date).days + 1):
         yield start_date + timedelta(n)
+
 
 def run_twse_pipeline(date_str: str, config):
     raw_dir = os.path.join(config["paths"]["raw_data"], "twse")
@@ -35,7 +36,8 @@ def run_twse_pipeline(date_str: str, config):
     # 匯入 SQLite
     sqlite_path = config["paths"].get("sqlite", "twse.db")
     table_name = config.get("twse", {}).get("table_name", "twse_chip")
-    import_twse_csv_to_sqlite(csv_path, sqlite_path, table_name, date_str)
+    import_twse_price_sql(csv_path, sqlite_path, table_name, date_str)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

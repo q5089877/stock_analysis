@@ -6,6 +6,7 @@ import pandas as pd
 from io import StringIO
 from datetime import datetime
 
+
 class TWSEDownloader:
     def __init__(self, url_template: str, save_dir: str):
         self.url_template = url_template
@@ -90,6 +91,7 @@ class InstitutionalTWSEDownloader:
         print(f"✅ TWSE 法人資料已儲存：{file_path}")
         return file_path
 
+
 class TPExInstitutionalDownloader:
     def __init__(self, save_dir: str):
         self.url = "https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php"
@@ -123,14 +125,16 @@ class TPExInstitutionalDownloader:
 
         for _ in range(3):  # retry 最多 3 次
             try:
-                r = requests.get(self.url, params=params, headers=self.headers, timeout=10)
+                r = requests.get(self.url, params=params,
+                                 headers=self.headers, timeout=10)
                 r.raise_for_status()
                 js = r.json()
                 table = (js.get('tables') or [None])[0]
                 if not table:
                     raise ValueError("無法取得 table 欄位")
 
-                df = pd.DataFrame(table.get('data'), columns=table.get('fields'))
+                df = pd.DataFrame(table.get('data'),
+                                  columns=table.get('fields'))
                 df = self.clean_data(df)
 
                 # 欄位重命名
@@ -147,7 +151,8 @@ class TPExInstitutionalDownloader:
 
                 # 統一欄位與格式
                 df.insert(0, '市場', 'TPEX')
-                df.rename(columns={df.columns[1]: '證券代號', df.columns[2]: '證券名稱'}, inplace=True)
+                df.rename(
+                    columns={df.columns[1]: '證券代號', df.columns[2]: '證券名稱'}, inplace=True)
                 df = df[['市場', '證券代號', '證券名稱',
                          '外資_買進', '外資_賣出', '外資_買賣超',
                          '投信_買進', '投信_賣出', '投信_買賣超',
@@ -167,3 +172,63 @@ class TPExInstitutionalDownloader:
 
         return df
 
+
+class TWSEPEDownloader:
+    URL = "https://www.twse.com.tw/exchangeReport/BWIBBU_d?response=csv&date={date}&selectType=ALL"
+
+    def __init__(self, save_dir: str):
+        self.save_dir = save_dir
+        os.makedirs(self.save_dir, exist_ok=True)
+
+    def download(self, date: str) -> str:
+        """
+        下載指定日期的本益比 CSV，存成 twse_pe_{date}.csv
+        :return: 完整檔案路徑
+        """
+        url = self.URL.format(date=date)
+        resp = requests.get(url)
+        resp.raise_for_status()
+        text = resp.content.decode("big5", errors="ignore")
+
+        # 只取「逗點數大於 5」的行
+        lines = [ln for ln in text.splitlines() if ln.count(",") > 5]
+        content = "\n".join(lines)
+
+        fn = f"twse_pe_{date}.csv"
+        path = os.path.join(self.save_dir, fn)
+        with open(path, "w", encoding="utf-8-sig") as f:
+            f.write(content)
+
+        print(f"✅ PE CSV 已存：{path}")
+        return path
+
+
+class TPEXPEDownloader:
+    URL = "https://www.tpex.org.tw/web/stock/aftertrading/peratio_analysis/pera_result.php?l=zh-tw&o=csv&charset=UTF-8&d={date}&c=&s=0,asc"
+
+    def __init__(self, save_dir: str):
+        self.save_dir = save_dir
+        os.makedirs(self.save_dir, exist_ok=True)
+
+    def download(self, date: str) -> str:
+        """
+        下載指定日期的上櫃本益比 CSV，存成 tpex_pe_{date}.csv
+        :param date: 格式 YYYYMMDD
+        :return: 檔案路徑
+        """
+        url = self.URL.format(date=date)
+        resp = requests.get(url)
+        resp.raise_for_status()
+        text = resp.content.decode("big5", errors="ignore")
+
+        # 只保留欄位數超過 5 的行
+        lines = [ln for ln in text.splitlines() if ln.count(",") > 5]
+        content = "\n".join(lines)
+
+        filename = f"tpex_pe_{date}.csv"
+        path = os.path.join(self.save_dir, filename)
+        with open(path, "w", encoding="utf-8-sig") as f:
+            f.write(content)
+
+        print(f"✅ TPEx PE CSV 已存：{path}")
+        return path

@@ -1,3 +1,7 @@
+from src.pipeline.twse_inst_sql import import_inst_sql
+from src.pipeline.twse_price_sql import import_twse_price_sql
+from src.pipeline.downloader import TWSEDownloader, InstitutionalTWSEDownloader
+from src.utils.helpers import load_config
 import sys
 import os
 import argparse
@@ -5,15 +9,12 @@ from datetime import datetime, timedelta
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from src.utils.helpers import load_config
-from src.pipeline.downloader import TWSEDownloader, InstitutionalTWSEDownloader
-from src.pipeline.twse_to_sqlite import import_twse_csv_to_sqlite
-from src.pipeline.twse_institutional_to_sqlite import import_institutional_csv_to_sqlite
 
 def daterange(start_date, end_date):
     """生成從 start_date 到 end_date（含）的所有日期"""
     for n in range((end_date - start_date).days + 1):
         yield start_date + timedelta(n)
+
 
 def run_all(date_str, config):
     # ===== 股價 =====
@@ -26,7 +27,7 @@ def run_all(date_str, config):
 
         if "無任何交易資料" not in content and len(content.strip()) > 200:
             csv_path = os.path.join(twse_dir, f"twse_{date_str}.csv")
-            import_twse_csv_to_sqlite(
+            import_twse_price_sql(
                 csv_path,
                 config["paths"].get("sqlite", "twse.db"),
                 config["twse"].get("table_name", "twse_chip"),
@@ -40,7 +41,8 @@ def run_all(date_str, config):
 
     # ===== 三大法人 =====
     try:
-        inst_dir = os.path.join(config["paths"]["raw_data"], "twse_institutional")
+        inst_dir = os.path.join(
+            config["paths"]["raw_data"], "twse_institutional")
         os.makedirs(inst_dir, exist_ok=True)
 
         inst = InstitutionalTWSEDownloader(
@@ -49,14 +51,16 @@ def run_all(date_str, config):
         )
         csv_path = inst.download(date_str)
 
-        import_institutional_csv_to_sqlite(
+        import_inst_sql(
             csv_path,
             config["paths"].get("sqlite", "twse.db"),
-            config["twse_institutional"].get("table_name", "institutional_chip")
+            config["twse_institutional"].get(
+                "table_name", "institutional_chip")
         )
         print(f"✅ 法人 {date_str} 處理完成")
     except Exception as e:
         print(f"❌ 法人 {date_str} 處理失敗：{e}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -66,7 +70,8 @@ if __name__ == "__main__":
 
     config = load_config()
     start = datetime.strptime(args.start, "%Y%m%d")
-    end   = datetime.strptime(args.end,   "%Y%m%d") if args.end else datetime.today()
+    end = datetime.strptime(
+        args.end,   "%Y%m%d") if args.end else datetime.today()
 
     for date in daterange(start, end):
         run_all(date.strftime("%Y%m%d"), config)

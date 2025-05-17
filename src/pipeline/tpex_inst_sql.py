@@ -2,7 +2,8 @@ import os
 import pandas as pd
 import sqlite3
 
-def import_tpex_institutional_csv_to_sqlite(
+
+def import_tpex_inst_sql(
     csv_path: str,
     sqlite_path: str,
     table_name: str = "tpex_institutional_chip"
@@ -17,8 +18,8 @@ def import_tpex_institutional_csv_to_sqlite(
     filename = os.path.basename(csv_path)
     raw = filename.split("_")[-1].split(".")[0]      # e.g. "1140508"
     roc_year = int(raw[:3])
-    month    = int(raw[3:5])
-    day      = int(raw[5:7])
+    month = int(raw[3:5])
+    day = int(raw[5:7])
     # 轉回西元 YYYYMMDD
     date_str = f"{roc_year + 1911:04d}{month:02d}{day:02d}"
 
@@ -91,6 +92,10 @@ def import_tpex_institutional_csv_to_sqlite(
             INSERT OR IGNORE INTO {table_name}
             SELECT * FROM {temp_table};
         """)
+        conn.commit()
+
+        # ✅ 插入完成後清除 temp 表，避免殘留
+        cur.execute(f"DROP TABLE IF EXISTS {temp_table};")
         conn.commit()
 
     print(f"✅ {date_str} 匯入 {table_name} 成功，共 {len(df)} 筆")

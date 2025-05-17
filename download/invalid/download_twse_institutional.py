@@ -1,3 +1,6 @@
+from src.pipeline.twse_inst_sql import import_inst_sql
+from src.utils.helpers import load_config
+from src.pipeline.downloader import InstitutionalTWSEDownloader
 import sys
 import os
 import argparse
@@ -5,14 +8,12 @@ from datetime import datetime, timedelta
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from src.pipeline.downloader import InstitutionalTWSEDownloader
-from src.utils.helpers import load_config
-from src.pipeline.twse_institutional_to_sqlite import import_institutional_csv_to_sqlite
 
 def daterange(start_date, end_date):
     """產生日期區間（含首尾）"""
     for n in range((end_date - start_date).days + 1):
         yield start_date + timedelta(n)
+
 
 def run_twse_institutional_pipeline(date_str: str, config):
     raw_dir = os.path.join(config["paths"]["raw_data"], "twse_institutional")
@@ -27,8 +28,10 @@ def run_twse_institutional_pipeline(date_str: str, config):
 
     # 匯入 SQLite
     sqlite_path = config["paths"].get("sqlite", "twse.db")
-    table_name = config.get("twse_institutional", {}).get("table_name", "institutional_chip")
-    import_institutional_csv_to_sqlite(csv_path, sqlite_path, table_name)
+    table_name = config.get("twse_institutional", {}).get(
+        "table_name", "institutional_chip")
+    import_inst_sql(csv_path, sqlite_path, table_name)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

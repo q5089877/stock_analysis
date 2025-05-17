@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+from src.pipeline.tpex_inst_sql import import_tpex_inst_sql
+from src.pipeline.tpex_price_sqlite import import_tpex_price_sql
+from src.pipeline.downloader import TPExDownloader, TPExInstitutionalDownloader
+from src.utils.helpers import load_config
 import sys
 import os
 import argparse
@@ -7,15 +11,12 @@ import traceback
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from src.utils.helpers import load_config
-from src.pipeline.downloader import TPExDownloader, TPExInstitutionalDownloader
-from src.pipeline.tpex_to_sqlite import import_tpex_csv_to_sqlite
-from src.pipeline.tpex_institutional_to_sqlite import import_tpex_institutional_csv_to_sqlite
 
 def daterange(start_date, end_date):
     """生成從 start_date 到 end_date（含）的所有日期"""
     for n in range((end_date - start_date).days + 1):
         yield start_date + timedelta(n)
+
 
 def run_all(date_str, config):
     print(f"\n──── 開始處理 {date_str} ────")
@@ -38,7 +39,7 @@ def run_all(date_str, config):
         print(f"[DEBUG] 行情檔長度: {len(content)}")
 
         if len(content.strip()) > 100:
-            import_tpex_csv_to_sqlite(
+            import_tpex_price_sql(
                 csv_path,
                 config["paths"].get("sqlite", "tpex.db"),
                 config["tpex"].get("table_name", "tpex_chip"),
@@ -63,22 +64,25 @@ def run_all(date_str, config):
         print(f"[INFO] 下載法人資料，ROC 日期: {roc_date}")
 
         df = inst.download(roc_date)
-        print(f"[DEBUG] 法人資料 rows: {len(df) if hasattr(df, '__len__') else 'N/A'}")
+        print(
+            f"[DEBUG] 法人資料 rows: {len(df) if hasattr(df, '__len__') else 'N/A'}")
 
         # 下載後產出的 CSV 檔
         csv_name_inst = f"tpex_institutional_{roc_date.replace('/', '')}.csv"
         csv_path_inst = os.path.join(inst_dir, csv_name_inst)
         print(f"[INFO] 法人 CSV: {csv_path_inst}")
 
-        import_tpex_institutional_csv_to_sqlite(
+        import_tpex_inst_sql(
             csv_path_inst,
             config["paths"].get("sqlite", "tpex.db"),
-            config["tpex_institutional"].get("table_name", "tpex_institutional_chip")
+            config["tpex_institutional"].get(
+                "table_name", "tpex_institutional_chip")
         )
         print(f"✅ TPEx {date_str} 法人處理完成")
     except Exception:
         print(f"❌ TPEx {date_str} 法人失敗")
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -88,7 +92,8 @@ if __name__ == "__main__":
 
     config = load_config()
     start = datetime.strptime(args.start, "%Y%m%d")
-    end   = datetime.strptime(args.end,   "%Y%m%d") if args.end else datetime.today()
+    end = datetime.strptime(
+        args.end,   "%Y%m%d") if args.end else datetime.today()
     print(f"[INFO] start={start.date()}, end={end.date()}")
 
     for d in daterange(start, end):

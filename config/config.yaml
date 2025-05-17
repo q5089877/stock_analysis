@@ -27,3 +27,9 @@ twse_institutional:
 
 tpex_institutional:
   url_template: "https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_download.php?l=zh-tw&d={roc_date}"
+
+twse_pe:
+  url_template: "https://www.twse.com.tw/exchangeReport/BWIBBU_d?response=csv&date={date}&selectType=ALL"
+  table_name: "twse_pe"
+
+
