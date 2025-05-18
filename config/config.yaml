@@ -32,4 +32,10 @@ twse_pe:
   url_template: "https://www.twse.com.tw/exchangeReport/BWIBBU_d?response=csv&date={date}&selectType=ALL"
   table_name: "twse_pe"
 
-
+finance:
+  table_name: finance_statements
+  report_dates:
+    - "2024-03-31"
+    - "2024-06-30"
+    - "2024-09-30"
+    - "2024-12-31"

@@ -166,6 +166,14 @@ def run_all(date_str, config):
         print(f"❌ TPEx 法人 {date_str} 失敗")
         traceback.print_exc()
 
+    # ===== 財報基本面指標（ROE & 毛利率） =====
+    try:
+        from src.pipeline.finance_to_sqlite import import_finance_indicators
+        import_finance_indicators(config)
+        print(f"✅ 財務指標處理完成")
+    except Exception as e:
+        print(f"❌ 財務指標處理失敗：{e}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
