@@ -8,7 +8,7 @@ database:
 paths:
   raw_data: ./data/raw
   processed_data: ./data/processed
-  sqlite: db/stockDB.db
+  sqlite: db/stockDB_0524.db
 
 # TWSE API URL 範本
 twse:
