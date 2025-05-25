@@ -136,8 +136,8 @@ def update_month_revenue_daily(years=2):
             ym = row[0]
             ym = tw_to_ad(ym)
             existing_ym.add(ym)
-        print(f"現有: {existing_ym}")
-        print(f"應有: {target_ym_set}")
+        # print(f"現有: {existing_ym}")
+        # print(f"應有: {target_ym_set}")
 
         info_msg = ""
 
