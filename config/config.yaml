@@ -16,7 +16,7 @@ twse:
 
 # TPEx API URL 範本
 tpex:
-  url_template: "https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php?d={roc_date}&l=zh-tw&o=csv"
+  url_template: "https://www.tpex.org.tw/www/zh-tw/emerging/dailyDl?name=EMdes010.{date}-C.csv"
 
 # 日誌等級
 logging:

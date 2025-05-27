@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from src.pipeline.tpex_inst_sql import import_tpex_inst_sql
-from src.pipeline.tpex_price_sqlite import import_tpex_price_sql
+from src.pipeline.tpex_price_sql import import_tpex_price_sql
 from src.pipeline.downloader import TPExDownloader, TPExInstitutionalDownloader
 from src.utils.helpers import load_config
 import sys

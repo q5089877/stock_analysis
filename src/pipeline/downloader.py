@@ -49,8 +49,8 @@ class TPExDownloader:
         return f"{roc_year}/{dt.month:02d}/{dt.day:02d}"
 
     def download(self, date: str):
-        roc_date = self._to_roc_date(date)
-        url = self.url_template.format(roc_date=roc_date)
+        print(date)
+        url = self.url_template.format(date=date)
         response = requests.get(url)
         text = response.content.decode("big5", errors="ignore")
 

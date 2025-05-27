@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 import traceback
 import argparse
 from src.pipeline.tpex_inst_sql import import_tpex_inst_sql
-from src.pipeline.tpex_price_sqlite import import_tpex_price_sql
+from src.pipeline.tpex_price_sql import import_tpex_price_sql
 from src.pipeline.twse_yield_sql import import_twse_yield_sql
 from src.pipeline.twse_inst_sql import import_inst_sql
 from src.pipeline.twse_price_sql import import_twse_price_sql
@@ -131,7 +131,7 @@ def run_all(date_str, config):
         pe_down = TPEXPEDownloader(tpex_pe_dir)
         csv_path = pe_down.download(date_str)
 
-        from src.pipeline.tpex_yield_sqlite import import_tpex_yield_sql
+        from src.pipeline.tpex_yield_sql import import_tpex_yield_sql
         import_tpex_yield_sql(
             csv_path,
             config["paths"].get("sqlite", "tpex.db"),
@@ -165,14 +165,6 @@ def run_all(date_str, config):
     except Exception:
         print(f"❌ TPEx 法人 {date_str} 失敗")
         traceback.print_exc()
-
-    # ===== 財報基本面指標（ROE & 毛利率） =====
-    try:
-        from src.pipeline.finance_to_sqlite import import_finance_indicators
-        import_finance_indicators(config)
-        print(f"✅ 財務指標處理完成")
-    except Exception as e:
-        print(f"❌ 財務指標處理失敗：{e}")
 
 
 if __name__ == "__main__":
