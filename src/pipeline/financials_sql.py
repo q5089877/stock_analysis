@@ -1,3 +1,4 @@
+import os
 from dateutil.relativedelta import relativedelta
 import pandas as pd
 import sqlite3
@@ -6,8 +7,19 @@ from selenium.webdriver.chrome.options import Options
 import time
 from io import StringIO
 from datetime import datetime
+from src.utils.helpers import load_config
 
-DB_PATH = "db/stockDB.db"
+config = load_config()
+
+# 從設定檔裡取出 db.path
+db_path = config.get('paths', {}).get('sqlite')
+if not db_path:
+    raise KeyError("config.yaml 裡面必須有 db.path 設定")
+
+# 檢查資料庫檔案是否存在
+if not os.path.exists(db_path):
+    raise FileNotFoundError(f"找不到資料庫檔案: {db_path}")
+
 CSV_PATH = "data/stock_id/stock_id.csv"
 
 
@@ -21,8 +33,6 @@ def ensure_month_revenue_table(db_path):
         mom REAL,
         last_year INTEGER,
         yoy REAL,
-        cum_revenue INTEGER,
-        cum_yoy REAL,
         last_update TEXT,
         PRIMARY KEY (stock_id, ym)
     )
@@ -63,7 +73,7 @@ def fetch_moneydj_month_revenue(stock_id, years=1):
         df = df.dropna(axis=1, how='all')
         df = df.rename(columns={
             "年/月": "ym", "營收": "revenue", "月增率": "mom",
-            "去年同期": "last_year", "年增率": "yoy", "累計營收": "cum_revenue"
+            "去年同期": "last_year", "年增率": "yoy"
         })
         df["stock_id"] = stock_id
         if years is not None and years > 0:
@@ -91,9 +101,9 @@ def fetch_moneydj_month_revenue(stock_id, years=1):
             df = df.drop("年增率", axis=1)
         if "cum_yoy" not in df.columns:
             df["cum_yoy"] = None
-        df["last_update"] = datetime.now().strftime("%Y-%m-%d")
+        df["last_update"] = datetime.now().strftime("%Y%m%d")
         df = df[["stock_id", "ym", "revenue", "mom", "last_year",
-                 "yoy", "cum_revenue", "cum_yoy", "last_update"]]
+                 "yoy", "last_update"]]
         df["ym"] = df["ym"].apply(tw_to_ad)
         return df
     except Exception as e:
@@ -115,7 +125,7 @@ def get_recent_ym_list(years=2):
 
 
 def update_month_revenue_daily(years=2):
-    ensure_month_revenue_table(DB_PATH)
+    ensure_month_revenue_table(db_path)
     try:
         df_csv = pd.read_csv(CSV_PATH, encoding="utf-8-sig")
     except UnicodeDecodeError:
@@ -125,7 +135,7 @@ def update_month_revenue_daily(years=2):
     df_csv['note'] = df_csv['note'].astype(str)
     stock_ids = df_csv['stock_id'].astype(str).tolist()
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(db_path)
     target_ym_set = get_recent_ym_list(years)
     for idx, sid in enumerate(stock_ids):
         print(f"\n== {sid} ==")
@@ -142,7 +152,7 @@ def update_month_revenue_daily(years=2):
         info_msg = ""
 
         if target_ym_set <= existing_ym:
-            info_msg = 'SQL已有完整資料'
+            info_msg = '---月報SQL已有完整資料---'
             print(f"{sid}: {info_msg}")
             df_csv.loc[df_csv['stock_id'].astype(
                 str) == str(sid), 'note'] = info_msg
@@ -152,7 +162,7 @@ def update_month_revenue_daily(years=2):
         print(">>> 會進行爬蟲")
         df = fetch_moneydj_month_revenue(sid, years=years)
         if df is None:
-            info_msg = '無法讀取月報'
+            info_msg = '------無法讀取月報'
             print(f"{sid}: {info_msg}")
             df_csv.loc[df_csv['stock_id'].astype(
                 str) == str(sid), 'note'] = info_msg

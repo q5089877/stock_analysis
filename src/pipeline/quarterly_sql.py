@@ -6,14 +6,25 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 from datetime import datetime
+from src.utils.helpers import load_config
 
-DB_PATH = "db/stockDB.db"
+# 讀取設定
+config = load_config()
+
+# 從設定檔裡取出 sqlite 路徑
+db_path = config.get('paths', {}).get('sqlite')
+if not db_path:
+    raise KeyError("config.yaml 裡面必須有 paths.sqlite 設定")
+# 檔案不存在就報錯
+if not os.path.exists(db_path):
+    raise FileNotFoundError(f"找不到資料庫檔案: {db_path}")
+
 CSV_PATH = "data/stock_id/stock_id.csv"
 
 
 def ensure_quarterly_table():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path)
     conn.execute("""
     CREATE TABLE IF NOT EXISTS quarterly_income_statement (
         stock_id TEXT,
@@ -31,8 +42,6 @@ def ensure_quarterly_table():
     """)
     conn.commit()
     conn.close()
-
-# 判斷目前可查詢的最新季別
 
 
 def get_latest_published_quarter():
@@ -82,7 +91,6 @@ def fetch_quarterly_table(stock_id):
     df = pd.DataFrame(rows, columns=headers)
 
     # 數值轉型
-    # 數值轉型
     for col in ["revenue", "cost", "gross_profit", "operating_profit", "pretax_profit", "net_profit"]:
         df[col] = pd.to_numeric(df[col].str.replace(",", "").replace(
             "-", "0"), errors='coerce').fillna(0).astype(int)
@@ -91,7 +99,7 @@ def fetch_quarterly_table(stock_id):
 
     df["quarter"] = df["quarter"].str.strip()
     df["stock_id"] = stock_id
-    df["last_update"] = datetime.now().strftime("%Y-%m-%d")
+    df["last_update"] = datetime.now().strftime("%Y%m%d")
 
     return df[["stock_id", "quarter", "revenue", "cost", "gross_profit", "operating_profit",
                "pretax_profit", "net_profit", "eps", "last_update"]]
@@ -106,10 +114,15 @@ def update_quarterly_financials():
         df_csv = pd.read_csv(CSV_PATH, encoding="utf-8-sig")
     except UnicodeDecodeError:
         df_csv = pd.read_csv(CSV_PATH, encoding="cp950")
-    if 'note' not in df_csv.columns:
-        df_csv['note'] = ''
-    stock_ids = df_csv['stock_id'].astype(str).tolist()
-    conn = sqlite3.connect(DB_PATH)
+
+    # 轉成字串，保證比對成功
+    df_csv['stock_id'] = df_csv['stock_id'].astype(str)
+    if 'note2' not in df_csv.columns:
+        df_csv['note2'] = ''
+
+    stock_ids = df_csv['stock_id'].tolist()
+    conn = sqlite3.connect(db_path)
+
     for sid in stock_ids:
         print(f"\n== {sid} ==")
         cursor = conn.execute(
@@ -119,25 +132,28 @@ def update_quarterly_financials():
         if latest_quarter in existing_quarters:
             msg = f'最新{latest_quarter}已在SQL'
             print(f"{sid}: {msg}")
-            df_csv.loc[df_csv['stock_id'] == sid, 'note'] = msg
+            df_csv.loc[df_csv['stock_id'] == sid, 'note2'] = msg
             continue
 
         df = fetch_quarterly_table(sid)
         if df is None:
             msg = '無法讀取財報'
             print(f"{sid}: {msg}")
-            df_csv.loc[df_csv['stock_id'] == sid, 'note'] = msg
+            df_csv.loc[df_csv['stock_id'] == sid, 'note2'] = msg
             continue
+
         new_df = df[~df['quarter'].isin(existing_quarters)]
         if new_df.empty:
-            msg = '資料已存在'
+            msg = '***資料已存在-不重複寫入-最新財報還未出來***'
         else:
             msg = f"成功寫入{len(new_df)}筆"
             new_df.to_sql("quarterly_income_statement", conn,
                           if_exists="append", index=False)
         print(f"{sid}: {msg}")
-        df_csv.loc[df_csv['stock_id'] == sid, 'note'] = msg
+        df_csv.loc[df_csv['stock_id'] == sid, 'note2'] = msg
         time.sleep(0.3)
+
+    # 寫回 CSV
     df_csv.to_csv(CSV_PATH, encoding="utf-8-sig", index=False)
     conn.close()
     print("\n所有財報資料更新完成！")

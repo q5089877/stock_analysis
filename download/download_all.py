@@ -3,7 +3,6 @@ import traceback
 import argparse
 from src.pipeline.tpex_inst_sql import import_tpex_inst_sql
 from src.pipeline.tpex_price_sql import import_tpex_price_sql
-from src.pipeline.twse_yield_sql import import_twse_yield_sql
 from src.pipeline.twse_inst_sql import import_inst_sql
 from src.pipeline.twse_price_sql import import_twse_price_sql
 from src.pipeline.downloader import (
@@ -76,24 +75,6 @@ def run_all(date_str, config):
     except Exception as e:
         print(f"❌ TWSE 法人 {date_str} 失敗：{e}")
 
-    # ===== TWSE 殖利率 & 股價淨值比 =====
-    try:
-        pe_dir = os.path.join(raw_dir, "twse_pe")
-        os.makedirs(pe_dir, exist_ok=True)
-
-        # 1) 下載 CSV
-        pe_down = TWSEPEDownloader(pe_dir)
-        csv_path = pe_down.download(date_str)
-
-        import_twse_yield_sql(
-            csv_path,
-            config["paths"].get("sqlite", "twse.db"),
-            config.get("twse_yield_pb", {}).get("table_name", "twse_yield_pb")
-        )
-        print(f"✅ TWSE 殖利率／PB {date_str} 建表並匯入完成")
-    except Exception as e:
-        print(f"❌ TWSE 殖利率／PB {date_str} 失敗：{e}")
-
     # ===== TPEx 行情 =====
     try:
         tpex_dir = os.path.join(raw_dir, "tpex")
@@ -120,26 +101,6 @@ def run_all(date_str, config):
     except Exception:
         print(f"❌ TPEx {date_str} 行情失敗")
         traceback.print_exc()
-
-        # ===== TPEx 殖利率 & 股價淨值比 & 本益比 =====
-    try:
-        tpex_pe_dir = os.path.join(raw_dir, "tpex_pe")
-        os.makedirs(tpex_pe_dir, exist_ok=True)
-
-        # 1) 下載 CSV
-        from src.pipeline.downloader import TPEXPEDownloader  # 確保這已存在於 downloader.py
-        pe_down = TPEXPEDownloader(tpex_pe_dir)
-        csv_path = pe_down.download(date_str)
-
-        from src.pipeline.tpex_yield_sql import import_tpex_yield_sql
-        import_tpex_yield_sql(
-            csv_path,
-            config["paths"].get("sqlite", "tpex.db"),
-            config.get("tpex_yield_pb", {}).get("table_name", "tpex_yield_pb")
-        )
-        print(f"✅ TPEx 殖利率／PB／PE {date_str} 建表並匯入完成")
-    except Exception as e:
-        print(f"❌ TPEx 殖利率／PB／PE {date_str} 失敗：{e}")
 
     # ===== TPEx 法人 =====
     try:
