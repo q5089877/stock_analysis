@@ -6,7 +6,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 from datetime import datetime
-from src.utils.helpers import load_config
+from src.utils.config_loader import load_config
 
 # 讀取設定
 config = load_config()

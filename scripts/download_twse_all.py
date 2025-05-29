@@ -1,7 +1,7 @@
 from src.pipeline.twse_inst_sql import import_inst_sql
 from src.pipeline.twse_price_sql import import_twse_price_sql
 from src.pipeline.downloader import TWSEDownloader, InstitutionalTWSEDownloader
-from src.utils.helpers import load_config
+from src.utils.config_loader import load_config
 import sys
 import os
 import argparse

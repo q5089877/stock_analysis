@@ -1,0 +1,32 @@
+all.zip
+├── config/
+│   └── config.yaml                 # 設定檔
+├── download/
+│   ├── download_all.py             # 一次下載所有資料的腳本
+│   ├── download_tpex_all.py        # 只下載 TPEx 資料
+│   ├── download_twse_all.py        # 只下載 TWSE 資料
+│   └── invalid/                    # 舊版或不再使用的下載腳本
+│       ├── download_twse_price.py
+│       ├── download_twse_institutional.py
+│       └── financials_and_revenue.py
+├── requirements.txt                # Python 套件需求
+├── pytest.ini                      # 測試工具設定
+├── 功能.xlsx                       # 功能說明（Excel）
+├── .gitignore                      # Git 忽略清單
+├── .env                            # 環境變數
+├── src/
+│   └── pipeline/
+│       ├── downloader.py           # 下載器程式碼
+│       ├── twse_price_sql.py       # TWSE 股價匯入 SQL
+│       ├── twse_inst_sql.py        # TWSE 法人匯入 SQL
+│       ├── tpex_price_sql.py       # TPEx 股價匯入 SQL
+│       └── tpex_inst_sql.py        # TPEx 法人匯入 SQL
+├── analyzers/
+│   ├── ma_analyzer.py              # 移動平均分析器
+│   └── swing_trading_analysis.py   # 擺盪交易分析器
+├── data/
+│   ├── raw/                        # 原始下載資料
+│   └── stock_id/
+│       └── stock_id.csv            # 允許匯入的股票代號清單
+└── tests/                          # 單元測試
+    └── （各種測試程式）  

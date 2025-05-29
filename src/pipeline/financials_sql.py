@@ -7,7 +7,7 @@ from selenium.webdriver.chrome.options import Options
 import time
 from io import StringIO
 from datetime import datetime
-from src.utils.helpers import load_config
+from src.utils.config_loader import load_config
 
 config = load_config()
 
