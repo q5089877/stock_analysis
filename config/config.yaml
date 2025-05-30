@@ -18,20 +18,31 @@ twse:
 tpex:
   url_template: "https://www.tpex.org.tw/www/zh-tw/emerging/dailyDl?name=EMdes010.{date}-C.csv"
 
+# ticket（融券／借券 HTML）URL 範本
+ticket:
+  # TWSE 融券／借券
+  twse_url_template: "https://www.twse.com.tw/rwd/zh/marginTrading/TWT93U?date={date}&response=html"
+  # TPEx 融券／借券
+  tpex_url_template: "https://www.tpex.org.tw/www/zh-tw/margin/sbl?date={date_url}&id=&response=html"
+
 # 日誌等級
 logging:
   level: INFO
 
+# TWSE 三大法人 API URL 範本
 twse_institutional:
   url_template: "https://www.twse.com.tw/fund/T86?response=csv&date={date}&selectType=ALLBUT0999"
 
+# TPEx 三大法人 API URL 範本
 tpex_institutional:
   url_template: "https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_download.php?l=zh-tw&d={roc_date}"
 
+# TWSE 殖利率／PB API URL 範本
 twse_pe:
   url_template: "https://www.twse.com.tw/exchangeReport/BWIBBU_d?response=csv&date={date}&selectType=ALL"
   table_name: "twse_pe"
 
+# 財報資料設定
 finance:
   table_name: finance_statements
   report_dates:
