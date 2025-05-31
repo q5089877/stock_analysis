@@ -42,6 +42,13 @@ twse_pe:
   url_template: "https://www.twse.com.tw/exchangeReport/BWIBBU_d?response=csv&date={date}&selectType=ALL"
   table_name: "twse_pe"
 
+credit:
+  twse:
+    url_template: "https://www.twse.com.tw/exchangeReport/MI_MARGN?response=csv&date={date}&selectType=ALL"
+  tpex:
+    url_template: "https://www.tpex.org.tw/www/zh-tw/margin/balance?date={date_url}&id=&response=csv-u8"
+
+
 # 財報資料設定
 finance:
   table_name: finance_statements
