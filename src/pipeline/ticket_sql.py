@@ -1,4 +1,4 @@
-# src/pipeline/ticket_sql.py
+# === src/pipeline/ticket_sql.py ===
 
 import os
 import sqlite3
@@ -29,21 +29,27 @@ def parse_html(html: str) -> list[dict]:
     for tr in tbody.find_all('tr'):
         cells = [td.get_text(strip=True).replace(',', '')
                  for td in tr.find_all('td')]
-        # 原表格 columns: [stock_id, stock_name, ...14 fields..., remark]
-        # 總共 15 cells，COLUMNS 長度為 13，需要跳過 index=1 和最後一個
-        if len(cells) < len(COLUMNS) + 2:
+        # cells 第一個是「股票代號」(col 0)，接下來的各欄依 COLUMNS 排序
+        if len(cells) < len(COLUMNS):
             continue
-        # 篩選：取 cells[0] + cells[2:-1]
-        values = [cells[0]] + cells[2:-1]
-        record = {col: values[i] for i, col in enumerate(COLUMNS)}
+        record = {
+            "股票代號": cells[0].zfill(4),  # 補零到 4 碼
+        }
+        # 接下來對應其他所有 COLUMNS（排除掉第一個「股票代號」）
+        for idx, col in enumerate(COLUMNS[1:], start=1):
+            record[col] = cells[idx]
         records.append(record)
+
     return records
 
 
 def import_ticket_twse_sql(html_path: str, sqlite_path: str) -> None:
     """
-    解析並匯入 TWSE 融券/借券到 ticket_twse
+    解析並匯入 TWSE 融券/借券到 ticket_twse。
+    已修改：不再 DROP TABLE，每筆資料只 insert 一次 (同一天同股票不重複)。
+    並且直接以固定路徑 'data/stock_id/stock_id.csv' 去讀 stock_id.csv。
     """
+    # 1. 先把 HTML 讀進來
     with open(html_path, 'r', encoding='utf-8') as f:
         html = f.read()
     rows = parse_html(html)
@@ -51,48 +57,72 @@ def import_ticket_twse_sql(html_path: str, sqlite_path: str) -> None:
         print(f"⚠️ 無法解析或無資料：{html_path}")
         return
 
-    # 過濾 stock_id.csv
-    data_dir = os.path.dirname(os.path.dirname(os.path.dirname(html_path)))
-    stock_id_csv = os.path.join(data_dir, 'stock_id', 'stock_id.csv')
+    # 2. 過濾 stock_id.csv: 直接讀 'data/stock_id/stock_id.csv'
+    stock_id_csv = os.path.join("data", "stock_id", "stock_id.csv")
     if not os.path.exists(stock_id_csv):
         raise FileNotFoundError(f"找不到 stock_id.csv: {stock_id_csv}")
+
     ids = (
         pd.read_csv(stock_id_csv, dtype={"stock_id": str})["stock_id"]
         .astype(str).str.extract(r"(\d+)")[0].fillna("").str.strip()
     )
     df = pd.DataFrame(rows)
-    before = len(df)
     df = df[df["股票代號"].isin(ids)].copy()
-    removed = before - len(df)
-    if removed > 0:
-        print(f"⚠️ 已過濾 {removed} 筆不在 stock_id.csv 清單內的資料 TWSE")
-    rows = df.to_dict('records')
+    if df.empty:
+        print(f"⚠️ 無任何符合 stock_id.csv 清單的資料：{html_path}")
+        return
 
-    # 解析日期
+    # 3. 取得當天的日期 (檔名格式 ticket_twse_YYYYMMDD.html)
     date_str = os.path.basename(html_path).split('_')[-1].split('.')[0]
 
-    # 建立資料表
+    # 4. 建立資料表 ticket_twse（如果不存在就建立）
     conn = sqlite3.connect(sqlite_path)
     cur = conn.cursor()
-    cur.execute("DROP TABLE IF EXISTS ticket_twse")
+    # 只在沒有這張表的時候 create
     cur.execute(
-        f"CREATE TABLE ticket_twse (date TEXT, {', '.join([col + ' INTEGER' if col != '股票代號' else col + ' TEXT' for col in COLUMNS])})")
+        "CREATE TABLE IF NOT EXISTS ticket_twse ("
+        "date TEXT, "
+        + ", ".join([
+            f"'{col}' INTEGER" if col != "股票代號" else "'股票代號' TEXT"
+            for col in COLUMNS
+        ])
+        + ")"
+    )
 
-    placeholders = ",".join(["?" for _ in range(len(COLUMNS) + 1)])
-    for row in rows:
-        vals = [date_str] + [int(row[col]) if row[col].isdigit()
-                             else 0 for col in COLUMNS[1:]]
-        # 第一欄股票代號保留字串
-        vals.insert(1, row['股票代號'])
-        cur.execute(f"INSERT INTO ticket_twse VALUES ({placeholders})", vals)
+    # 5. 每一筆資料插入前，先檢查是否已經存在相同 (date, 股票代號) 的紀錄
+    placeholders = ",".join(["?"] * (len(COLUMNS) + 1)
+                            )  # date + len(COLUMNS) 欄位
+    for _, row in df.iterrows():
+        # 查詢 (date, 股票代號) 是否已存在
+        cur.execute(
+            "SELECT 1 FROM ticket_twse WHERE date = ? AND 股票代號 = ? LIMIT 1",
+            (date_str, row["股票代號"])
+        )
+        if cur.fetchone():
+            # 如果已經有這一天、這檔股票的紀錄，就跳過 INSERT
+            continue
+
+        # 要插入的欄位順序： date, 股票代號, COLUMNS[1:], ...
+        vals = [date_str, row["股票代號"]]
+        for col in COLUMNS[1:]:
+            # 如果是數字字串就轉整數，否則填 0
+            vals.append(int(row[col]) if str(row[col]).isdigit() else 0)
+
+        cur.execute(
+            f"INSERT INTO ticket_twse VALUES ({placeholders})", tuple(vals)
+        )
+
     conn.commit()
     conn.close()
 
 
 def import_ticket_tpex_sql(html_path: str, sqlite_path: str) -> None:
     """
-    解析並匯入 TPEX 融券/借券到 ticket_tpex
+    解析並匯入 TPEx 融券/借券到 ticket_tpex。
+    已修改：不再 DROP TABLE，每筆資料只 insert 一次 (同一天同股票不重複)。
+    並且直接以固定路徑 'data/stock_id/stock_id.csv' 去讀 stock_id.csv。
     """
+    # 1. 先把 HTML 讀進來
     with open(html_path, 'r', encoding='utf-8') as f:
         html = f.read()
     rows = parse_html(html)
@@ -100,56 +130,54 @@ def import_ticket_tpex_sql(html_path: str, sqlite_path: str) -> None:
         print(f"⚠️ 無法解析或無資料：{html_path}")
         return
 
-    # 過濾 stock_id.csv
-    data_dir = os.path.dirname(os.path.dirname(os.path.dirname(html_path)))
-    stock_id_csv = os.path.join(data_dir, 'stock_id', 'stock_id.csv')
+    # 2. 過濾 stock_id.csv: 直接讀 'data/stock_id/stock_id.csv'
+    stock_id_csv = os.path.join("data", "stock_id", "stock_id.csv")
     if not os.path.exists(stock_id_csv):
         raise FileNotFoundError(f"找不到 stock_id.csv: {stock_id_csv}")
+
     ids = (
         pd.read_csv(stock_id_csv, dtype={"stock_id": str})["stock_id"]
         .astype(str).str.extract(r"(\d+)")[0].fillna("").str.strip()
     )
     df = pd.DataFrame(rows)
-    before = len(df)
     df = df[df["股票代號"].isin(ids)].copy()
-    removed = before - len(df)
-    if removed > 0:
-        print(f"⚠️ 已過濾 {removed} 筆不在 stock_id.csv 清單內的資料 TPEX")
-    rows = df.to_dict('records')
+    if df.empty:
+        print(f"⚠️ 無任何符合 stock_id.csv 清單的資料：{html_path}")
+        return
 
+    # 3. 取得當天的日期 (檔名格式 ticket_tpex_YYYYMMDD.html)
     date_str = os.path.basename(html_path).split('_')[-1].split('.')[0]
 
+    # 4. 建立資料表 ticket_tpex（如果不存在就建立）
     conn = sqlite3.connect(sqlite_path)
     cur = conn.cursor()
-    cur.execute("DROP TABLE IF EXISTS ticket_tpex")
     cur.execute(
-        f"CREATE TABLE ticket_tpex (date TEXT, {', '.join([col + ' INTEGER' if col != '股票代號' else col + ' TEXT' for col in COLUMNS])})")
+        "CREATE TABLE IF NOT EXISTS ticket_tpex ("
+        "date TEXT, "
+        + ", ".join([
+            f"'{col}' INTEGER" if col != "股票代號" else "'股票代號' TEXT"
+            for col in COLUMNS
+        ])
+        + ")"
+    )
 
-    placeholders = ",".join(["?" for _ in range(len(COLUMNS) + 1)])
-    for row in rows:
-        vals = [date_str] + [int(row[col]) if row[col].isdigit()
-                             else 0 for col in COLUMNS[1:]]
-        vals.insert(1, row['股票代號'])
-        cur.execute(f"INSERT INTO ticket_tpex VALUES ({placeholders})", vals)
+    # 5. 每一筆資料插入前，先檢查是否已經存在相同 (date, 股票代號) 的紀錄
+    placeholders = ",".join(["?"] * (len(COLUMNS) + 1))
+    for _, row in df.iterrows():
+        cur.execute(
+            "SELECT 1 FROM ticket_tpex WHERE date = ? AND 股票代號 = ? LIMIT 1",
+            (date_str, row["股票代號"])
+        )
+        if cur.fetchone():
+            continue
+
+        vals = [date_str, row["股票代號"]]
+        for col in COLUMNS[1:]:
+            vals.append(int(row[col]) if str(row[col]).isdigit() else 0)
+
+        cur.execute(
+            f"INSERT INTO ticket_tpex VALUES ({placeholders})", tuple(vals)
+        )
+
     conn.commit()
     conn.close()
-
-
-if __name__ == "__main__":
-    # 自我測試
-    from src.utils.config_loader import load_config
-    cfg = load_config()
-    sqlite_path = cfg["paths"]["sqlite"]
-    raw_dir = cfg["paths"]["raw_data"]
-
-    # 測試 TWSE
-    d1 = "20250522"
-    p1 = os.path.join(raw_dir, "ticket_twse", f"ticket_twse_{d1}.html")
-    import_ticket_twse_sql(p1, sqlite_path)
-    print(f"[測試] ticket_twse_{d1} 匯入完成")
-
-    # 測試 TPEX
-    d2 = "20250528"
-    p2 = os.path.join(raw_dir, "ticket_tpex", f"ticket_tpex_{d2}.html")
-    import_ticket_tpex_sql(p2, sqlite_path)
-    print(f"[測試] ticket_tpex_{d2} 匯入完成")
