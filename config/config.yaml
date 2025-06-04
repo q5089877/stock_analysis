@@ -9,6 +9,7 @@ paths:
   raw_data: ./data/raw
   processed_data: ./data/processed
   sqlite: db/stockDB.db
+  price_data: ./data/price    # 新增：技術指標要用的股價 CSV 存放位置
 
 # TWSE API URL 範本
 twse:
@@ -48,7 +49,6 @@ credit:
   tpex:
     url_template: "https://www.tpex.org.tw/www/zh-tw/margin/balance?date={date_url}&id=&response=csv-u8"
 
-
 # 財報資料設定
 finance:
   table_name: finance_statements
@@ -57,3 +57,19 @@ finance:
     - "2024-06-30"
     - "2024-09-30"
     - "2024-12-31"
+
+# 新增：技術指標（Technical Indicator）參數設定
+technical_indicator:
+  # RSI 計算要用幾天
+  RSI_period: 14
+  # MACD 快線、慢線與訊號線參數
+  MACD_fast: 12
+  MACD_slow: 26
+  MACD_signal: 9
+  # 布林通道參數：n 表示移動平均天數，k 表示標準差倍數
+  Bollinger_N: 20
+  Bollinger_k: 2
+  # KD 隨機指標參數：period 表示看幾天高低價；smooth_k、smooth_d 表示 K、D 的平滑天數
+  KD_period: 9
+  KD_smooth_k: 3
+  KD_smooth_d: 3

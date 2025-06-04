@@ -15,7 +15,8 @@ COLUMNS = [
 
 def parse_html(html: str) -> list[dict]:
     """
-    解析 HTML 表格，跳過「股票名稱」和「備註」欄，對應到 COLUMNS
+    解析 HTML 表格，跳過「股票名稱」和「備註」欄，對應到 COLUMNS。
+    但這裡要做一個小修正：把 HTML 上的「借券限額」當成「借券當日餘額」來用。
     """
     soup = BeautifulSoup(html, 'html.parser')
     table = soup.find('table')
@@ -27,17 +28,31 @@ def parse_html(html: str) -> list[dict]:
 
     records = []
     for tr in tbody.find_all('tr'):
+        # 先把 <td> 文字取出並去掉千分位逗號
         cells = [td.get_text(strip=True).replace(',', '')
                  for td in tr.find_all('td')]
-        # cells 第一個是「股票代號」(col 0)，接下來的各欄依 COLUMNS 排序
-        if len(cells) < len(COLUMNS):
+        # 計算：我們的 COLUMNS（13 欄）對應到 HTML 實際的數值欄需要 cells 最少 14 個元素
+        if len(cells) < len(COLUMNS) + 1:
             continue
+
+        # 1. 把「股票代號」先存起來
         record = {
-            "股票代號": cells[0].zfill(4),  # 補零到 4 碼
+            "股票代號": cells[0].zfill(4),  # 不足 4 碼時補零
         }
-        # 接下來對應其他所有 COLUMNS（排除掉第一個「股票代號」）
+        # 2. 把 cells[2], cells[3], ... 依次對應到 COLUMNS[1:]
         for idx, col in enumerate(COLUMNS[1:], start=1):
-            record[col] = cells[idx]
+            raw_val = cells[idx + 1]
+            record[col] = int(raw_val) if str(raw_val).isdigit() else 0
+
+        # ====== 在這邊加兩行，把「借券限額」（HTML 的 cells[13]）塞到「借券當日餘額」裡 ======
+        # COLUMNS 列表中，"借券當日餘額" 的 index 是 11；"借券限額" 的 index 是 12
+        # record["借券限額"] 目前剛好就是 HTML cells[13]（真實要的當日餘額）
+        # 所以把它複製到 record["借券當日餘額"]
+        record["借券當日餘額"] = record["借券限額"]
+        # 如果以後不想保留原本那個欄位，可以把它設成 0，或乾脆不管也沒關係
+        # record["借券限額"] = 0
+        # =============================================================================
+
         records.append(record)
 
     return records
@@ -105,7 +120,7 @@ def import_ticket_twse_sql(html_path: str, sqlite_path: str) -> None:
         # 要插入的欄位順序： date, 股票代號, COLUMNS[1:], ...
         vals = [date_str, row["股票代號"]]
         for col in COLUMNS[1:]:
-            # 如果是數字字串就轉整數，否則填 0
+            # record["借券當日餘額"] 已經被塞成「真正的」借券餘額
             vals.append(int(row[col]) if str(row[col]).isdigit() else 0)
 
         cur.execute(
@@ -122,7 +137,7 @@ def import_ticket_tpex_sql(html_path: str, sqlite_path: str) -> None:
     已修改：不再 DROP TABLE，每筆資料只 insert 一次 (同一天同股票不重複)。
     並且直接以固定路徑 'data/stock_id/stock_id.csv' 去讀 stock_id.csv。
     """
-    # 1. 先把 HTML 讀進來
+    # 步驟同上，把 parse_html 的結果用在 ticket_tpex
     with open(html_path, 'r', encoding='utf-8') as f:
         html = f.read()
     rows = parse_html(html)
@@ -130,7 +145,6 @@ def import_ticket_tpex_sql(html_path: str, sqlite_path: str) -> None:
         print(f"⚠️ 無法解析或無資料：{html_path}")
         return
 
-    # 2. 過濾 stock_id.csv: 直接讀 'data/stock_id/stock_id.csv'
     stock_id_csv = os.path.join("data", "stock_id", "stock_id.csv")
     if not os.path.exists(stock_id_csv):
         raise FileNotFoundError(f"找不到 stock_id.csv: {stock_id_csv}")
@@ -145,10 +159,8 @@ def import_ticket_tpex_sql(html_path: str, sqlite_path: str) -> None:
         print(f"⚠️ 無任何符合 stock_id.csv 清單的資料：{html_path}")
         return
 
-    # 3. 取得當天的日期 (檔名格式 ticket_tpex_YYYYMMDD.html)
     date_str = os.path.basename(html_path).split('_')[-1].split('.')[0]
 
-    # 4. 建立資料表 ticket_tpex（如果不存在就建立）
     conn = sqlite3.connect(sqlite_path)
     cur = conn.cursor()
     cur.execute(
@@ -161,7 +173,6 @@ def import_ticket_tpex_sql(html_path: str, sqlite_path: str) -> None:
         + ")"
     )
 
-    # 5. 每一筆資料插入前，先檢查是否已經存在相同 (date, 股票代號) 的紀錄
     placeholders = ",".join(["?"] * (len(COLUMNS) + 1))
     for _, row in df.iterrows():
         cur.execute(

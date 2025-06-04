@@ -48,11 +48,11 @@ def run_all(date_str, config):
     # ===== TWSE 股價 =====
     try:
         sqlite_path = config["paths"].get("sqlite", "twse.db")
-        price_table = config["twse"].get("table_name", "twse_chip")
+        price_table = config["twse"].get("table_name", "twse_price")
         if check_date_exists(sqlite_path, price_table, date_str):
             print(f"✅ TWSE 股價 {date_str} 已存在，跳過")
         else:
-            twse_dir = os.path.join(raw_dir, "twse")
+            twse_dir = os.path.join(raw_dir, "twse_price")
             os.makedirs(twse_dir, exist_ok=True)
 
             twse = TWSEDownloader(config["twse"]["url_template"], twse_dir)
@@ -101,16 +101,19 @@ def run_all(date_str, config):
     # ===== TPEx 行情 =====
     try:
         sqlite_path = config["paths"].get("sqlite", "tpex.db")
-        price_table = config["tpex"].get("table_name", "tpex_chip")
+        price_table = config["tpex"].get("table_name", "tpex_price")
         if check_date_exists(sqlite_path, price_table, date_str):
             print(f"✅ TPEx 股價 {date_str} 已存在，跳過")
         else:
-            tpex_dir = os.path.join(raw_dir, "tpex")
+            tpex_dir = os.path.join(raw_dir, "tpex_price")
             os.makedirs(tpex_dir, exist_ok=True)
 
-            tp = TPExDownloader(config["tpex"]["url_template"], raw_dir)
+            tp = TPExDownloader(config["tpex"]["url_template"], tpex_dir)
             tp.download(date_str)
             csv_path = os.path.join(tpex_dir, f"tpex_{date_str}.csv")
+
+            twse_dir = os.path.join(raw_dir, "twse_price")
+            os.makedirs(twse_dir, exist_ok=True)
 
             with open(csv_path, "r", encoding="utf-8-sig") as f:
                 content = f.read()

@@ -6,7 +6,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 import time
 from io import StringIO
-from datetime import datetime
+from datetime import datetime, timedelta
 from src.utils.config_loader import load_config
 
 config = load_config()
@@ -96,9 +96,9 @@ def fetch_moneydj_month_revenue(stock_id, years=1):
             try:
                 df["cum_yoy"] = df["年增率"].astype(str).str.replace(
                     "%", "").replace("", "0").astype(float)
+                df = df.drop("年增率", axis=1)
             except Exception as ex:
                 print(f"{stock_id}: 欄位 cum_yoy 轉型失敗：{ex}")
-            df = df.drop("年增率", axis=1)
         if "cum_yoy" not in df.columns:
             df["cum_yoy"] = None
         df["last_update"] = datetime.now().strftime("%Y%m%d")
@@ -113,8 +113,22 @@ def fetch_moneydj_month_revenue(stock_id, years=1):
         driver.quit()
 
 
+def get_first_n_business_days(year: int, month: int, n: int = 11):
+    """
+    回傳指定年份和月份的前 n 個工作日(週一到週五)的日期列表。
+    """
+    business_days = []
+    current_date = datetime(year, month, 1)
+    while len(business_days) < n:
+        if current_date.weekday() < 5:  # 週一(0)到週五(4)
+            business_days.append(current_date)
+        current_date += timedelta(days=1)
+    return business_days
+
+
 def get_recent_ym_list(years=2):
     now = datetime.now()
+    # 取上個月
     last_month = now - relativedelta(months=1)
     ym_set = set()
     for i in range(years * 12):
@@ -125,6 +139,17 @@ def get_recent_ym_list(years=2):
 
 
 def update_month_revenue_daily(years=2):
+    # ===== 在真正抓資料之前，先檢查「今天是否已經到當月第 11 個工作日」 =====
+    today = datetime.now().date()
+    year, month = today.year, today.month
+    first_11 = get_first_n_business_days(year, month, 11)
+    eleventh_business_day = first_11[-1].date()  # 第 11 個工作日的日期
+
+    if today < eleventh_business_day:
+        print(f"今天 {today} 還未到當月第 11 個工作日 ({eleventh_business_day})，暫不抓月報。")
+        return
+    # ======================================================================
+
     ensure_month_revenue_table(db_path)
     try:
         df_csv = pd.read_csv(CSV_PATH, encoding="utf-8-sig")
@@ -146,8 +171,6 @@ def update_month_revenue_daily(years=2):
             ym = row[0]
             ym = tw_to_ad(ym)
             existing_ym.add(ym)
-        # print(f"現有: {existing_ym}")
-        # print(f"應有: {target_ym_set}")
 
         info_msg = ""
 

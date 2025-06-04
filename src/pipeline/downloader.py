@@ -41,7 +41,7 @@ class TPExDownloader:
     def __init__(self, url_template: str, save_dir: str):
         self.url_template = url_template
         self.save_dir = save_dir
-        os.makedirs(os.path.join(self.save_dir, "tpex"), exist_ok=True)
+        os.makedirs(self.save_dir, exist_ok=True)
 
     def _to_roc_date(self, date: str) -> str:
         dt = datetime.strptime(date, "%Y%m%d")
@@ -55,7 +55,7 @@ class TPExDownloader:
         text = response.content.decode("big5", errors="ignore")
 
         filename = f"tpex_{date}.csv"
-        file_path = os.path.join(self.save_dir, "tpex", filename)
+        file_path = os.path.join(self.save_dir, filename)
 
         with open(file_path, "w", encoding="utf-8-sig") as f:
             f.write(text)
