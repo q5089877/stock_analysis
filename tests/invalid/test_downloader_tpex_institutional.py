@@ -3,9 +3,11 @@ import pytest
 import pandas as pd
 from src.pipeline.downloader import TPExInstitutionalDownloader
 
+
 @pytest.fixture
 def downloader():
     return TPExInstitutionalDownloader(save_dir="data/raw/tpex_institutional")
+
 
 def test_download_tpex_institutional(downloader):
     test_date = "114/05/08"

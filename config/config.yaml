@@ -10,6 +10,7 @@ paths:
   processed_data: ./data/processed
   sqlite: db/stockDB.db
   price_data: ./data/price    # 新增：技術指標要用的股價 CSV 存放位置
+  stock_list: "data/stock_id/stock_id.csv"
 
 # TWSE API URL 範本
 twse:
