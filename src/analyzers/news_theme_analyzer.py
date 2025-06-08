@@ -7,44 +7,48 @@ from typing import Dict, List, Tuple
 import pandas as pd
 from transformers import pipeline, AutoTokenizer
 
+from src.utils.config_loader import load_config  # 加上這行以讀取 config
+
 
 class StockNewsScorer:
-    """StockNewsScorer v3 –
-    1. 自動截斷超過 512 token 的文字再丟給 FinBERT
-    2. 記錄「哪個關鍵字」在「哪篇文章」給了「多少 sentiment×weight」
-    3. 輸出最終每檔股票分數 + 詳細加分原因到 CSV
-    4. 另將抓到的所有新聞 (title, description) 也輸出到 CSV
-    5. 產生熱門產業與熱門股票報告
+    """StockNewsScorer v4 –
+    1. 支援多個 RSS 網址，一次抓好幾個新聞來源
+    2. 自動截斷超過 512 token 的文字再丟給 FinBERT
+    3. 記錄「哪個關鍵字」在「哪篇文章」給了「多少 sentiment×weight」
+    4. 輸出熱門產業、總得分、個別新聞得分＋新聞標題的 CSV，並依總得分排序
     """
 
     def __init__(
         self,
         csv_path: str,
-        rss_url: str = "https://tw.news.yahoo.com/rss/finance",
+        rss_urls: List[str] = None,
         timeout: int = 10,
         device: int = -1,
     ) -> None:
         self.csv_path = csv_path
-        self.rss_url = rss_url
         self.timeout = timeout
         self.device = device
 
-        # --- 讀取股票清單 --- #
+        # 處理 rss_urls：如果沒給就使用預設
+        if rss_urls is None:
+            self.rss_urls = ["https://tw.news.yahoo.com/rss/finance"]
+        else:
+            if isinstance(rss_urls, str):
+                self.rss_urls = [rss_urls]
+            else:
+                self.rss_urls = rss_urls
+
+        # 讀取股票清單
         if not os.path.exists(self.csv_path):
-            raise FileNotFoundError(self.csv_path)
+            raise FileNotFoundError(f"找不到 CSV 檔案：{self.csv_path}")
         df = pd.read_csv(self.csv_path, dtype=str).fillna("")
         if not {"stock_id", "產業別"}.issubset(df.columns):
-            raise ValueError("CSV 缺少 stock_id / 產業別 欄位！")
+            raise ValueError("CSV 必須包含 stock_id / 產業別 兩個欄位！")
 
-        # 偵測「公司名稱」欄位
-        name_cols = [
-            c
-            for c in df.columns
-            if re.search(r"公司名稱|有價證券名稱|name", c)
-        ]
+        # 偵測公司名稱欄位（可選）
+        name_cols = [c for c in df.columns if re.search(
+            r"公司名稱|有價證券名稱|name", c)]
         self.name_col = name_cols[0] if name_cols else None
-        if not self.name_col:
-            print("⚠️ CSV 無公司名稱欄，僅能用產業/股號比對")
 
         # stock_id → industry / company_name
         self.stock_to_industry: Dict[str, str] = {}
@@ -56,13 +60,15 @@ class StockNewsScorer:
             if self.name_col:
                 name = re.sub(r"股份有限公司$", "", row[self.name_col].strip())
                 self.stock_to_name[sid] = name.lower()
+            else:
+                self.stock_to_name[sid] = ""
 
         # industry → list of stock_ids
         self.industry_to_stocks: Dict[str, List[str]] = {}
         for sid, ind in self.stock_to_industry.items():
             self.industry_to_stocks.setdefault(ind, []).append(sid)
 
-        # 針對每個 industry，拆出「產業關鍵字 (長度 >= 2)」
+        # industry → list of keywords (含簡單拆字)
         self.industry_keywords: Dict[str, List[str]] = {}
         suffixes = ["服務業", "業控股", "業務", "業者", "工業", "業"]
         for ind in self.industry_to_stocks:
@@ -76,7 +82,7 @@ class StockNewsScorer:
             kws = set([ind] + parts)
             self.industry_keywords[ind] = [k.lower() for k in kws]
 
-        # 針對每檔股票，只用「股票代號 + 完整公司名稱」當作 matching keywords
+        # stock_id → matching keywords (股票代號、公司名稱)
         self.stock_keywords: Dict[str, List[str]] = {}
         for sid, name in self.stock_to_name.items():
             if name:
@@ -84,61 +90,61 @@ class StockNewsScorer:
             else:
                 self.stock_keywords[sid] = [sid]
 
-        # --- 準備 tokenizer & FinBERT pipeline --- #
+        # 準備 FinBERT tokenizer 和 pipeline
         self.tokenizer = AutoTokenizer.from_pretrained(
-            "yiyanghkust/finbert-tone-chinese"
-        )
+            "yiyanghkust/finbert-tone-chinese")
         self.sentiment_classifier = pipeline(
             "sentiment-analysis",
             model="yiyanghkust/finbert-tone-chinese",
             tokenizer=self.tokenizer,
-            device=device,
+            device=self.device,
         )
 
-    # ------------------------- 抓新聞 (返回明細) ------------------------- #
-    def _fetch_articles(self, max_items: int = 200) -> List[Dict[str, str]]:
+    def _fetch_articles(self, max_items_per_source: int = 100) -> List[Dict[str, str]]:
         """
-        從 RSS 下載最新max_items篇新聞，回傳 list of {
+        從多個 RSS 網址下載最新新聞，每個來源最多抓 max_items_per_source 篇
+        回傳 list of {
             "title": str,
             "description": str,
-            "combined": str  # title + " " + description
+            "combined": str
         }
         """
-        try:
-            xml = requests.get(self.rss_url, timeout=self.timeout).text
-            root = ET.fromstring(xml)
-        except Exception as e:
-            print("RSS 取得失敗：", e)
-            return []
+        all_results: List[Dict[str, str]] = []
 
-        items_node = root.find("channel")
-        items = (
-            items_node.findall("item")[:max_items]
-            if items_node is not None
-            else []
-        )
-        results: List[Dict[str, str]] = []
-        for it in items:
-            title = (it.findtext("title") or "").strip()
-            desc = (it.findtext("description")
-                    or it.findtext("summary") or "").strip()
-            combined = f"{title} {desc}"
-            results.append({
-                "title": title,
-                "description": desc,
-                "combined": combined
-            })
-        return results
+        for url in self.rss_urls:
+            try:
+                xml = requests.get(url, timeout=self.timeout).text
+                root = ET.fromstring(xml)
+            except Exception as e:
+                print(f"RSS 取得失敗（{url}）：", e)
+                continue
 
-    # ------------------------- 情緒推論 ------------------------- #
+            items_node = root.find("channel")
+            items = (
+                items_node.findall("item")[:max_items_per_source]
+                if items_node is not None
+                else []
+            )
+            for it in items:
+                title = (it.findtext("title") or "").strip()
+                desc = (it.findtext("description")
+                        or it.findtext("summary") or "").strip()
+                combined = f"{title} {desc}"
+                all_results.append({
+                    "title": title,
+                    "description": desc,
+                    "combined": combined
+                })
+
+        return all_results
+
     @staticmethod
     def _label_to_val(label: str) -> int:
         return 1 if label == "positive" else (-1 if label == "negative" else 0)
 
     def _get_article_sentiment(self, text: str) -> int:
         """
-        先把 text 截斷到 512 token，再丟進 FinBERT 取得 -1/0/+1。
-        若失敗則回傳 0（中立）。
+        先把文字截斷到 512 token，再丟進 FinBERT，回傳 -1, 0, +1
         """
         try:
             encoded = self.tokenizer(
@@ -157,7 +163,6 @@ class StockNewsScorer:
         except Exception:
             return 0
 
-    # ------------------------- 關鍵字比對 ------------------------- #
     @staticmethod
     def _kw_in_text(kw: str, text: str) -> bool:
         return kw.lower() in text
@@ -166,58 +171,69 @@ class StockNewsScorer:
     def _numeric_kw_pattern(num: str) -> re.Pattern:
         return re.compile(rf"[\(（]{num}[\)）]")
 
-    # ------------------------- 主計算：算各產業分數並收集詳情 ------------------------- #
     def _score_industries(
-        self, articles: List[str]
-    ) -> Tuple[Dict[str, float], Dict[str, List[Tuple[str, float]]]]:
+        self, articles: List[Dict[str, str]]
+    ) -> Tuple[
+        Dict[str, float],
+        Dict[str, List[Tuple[str, float]]],
+        Dict[str, List[Tuple[float, str]]]
+    ]:
         """
-        articles: 只要是文章完整文字 (title+desc)，單純 list of str
-        回傳:
-            scores: {產業: 0~100 分數}
-            industry_details: {產業: [(reason, contrib), ...]}
+        articles: list of {"title": str, "description": str, "combined": str}
+        回傳：
+          - scores: {產業: 0~100}
+          - industry_details: {產業: [(reason, contrib), ...]}
+          - industry_articles: {產業: [(contrib, title), ...]}
         """
         bucket: Dict[str, List[float]] = {ind: []
                                           for ind in self.industry_keywords}
         industry_details: Dict[str, List[Tuple[str, float]]] = {
             ind: [] for ind in self.industry_keywords
         }
+        industry_articles: Dict[str, List[Tuple[float, str]]] = {
+            ind: [] for ind in self.industry_keywords
+        }
 
-        for art in articles:
+        # 只匹配「(1234)」或「（1234）」格式的股票代號
+        stock_code_pattern = re.compile(r"[（(](\d{4})[)）]")
+
+        for item in articles:
+            title = item["title"]
+            art = item["combined"]
             art_l = art.lower()
             senti = self._get_article_sentiment(art)
 
-            # 改 matched_info 為：key=產業, value=list of (weight, reason)
             matched_info: Dict[str, List[Tuple[float, str]]] = {}
 
-            # 1️⃣ 公司名稱 / 股票代號
-            for sid, kws in self.stock_keywords.items():
-                ind = self.stock_to_industry[sid]
-                for kw in kws:
-                    if kw.isdigit():  # 純數字代號
-                        if self._numeric_kw_pattern(kw).search(art):
-                            w = 0.8
-                            reason = f"(股票代號：{kw})"
-                            matched_info.setdefault(
-                                ind, []).append((w, reason))
-                            break
-                    else:  # 公司名稱
-                        if self._kw_in_text(kw, art_l):
-                            w = 1.0
-                            reason = f"(公司名稱：{kw})"
-                            matched_info.setdefault(
-                                ind, []).append((w, reason))
-                            break
+            # 1️⃣ 找股號（只看括號內 4 位數字）
+            for m in stock_code_pattern.finditer(art):
+                code = m.group(1)
+                if code in self.stock_to_industry:
+                    ind = self.stock_to_industry[code]
+                    w = 0.8
+                    reason = f"(股票代號：{code})"
+                    matched_info.setdefault(ind, []).append((w, reason))
+                    # 若希望一篇文章只算一次，可加上 break
 
-            # 2️⃣ 產業關鍵字
+            # 2️⃣ 公司名稱＋「股份／公司」才算
+            for sid, comp in self.stock_to_name.items():
+                if comp and comp in art_l:
+                    if re.search(rf"{comp}(股份|公司)", art_l):
+                        ind = self.stock_to_industry[sid]
+                        w = 1.0
+                        reason = f"(公司名稱：{comp})"
+                        matched_info.setdefault(ind, []).append((w, reason))
+
+            # 3️⃣ 產業關鍵字匹配
             for ind, kws in self.industry_keywords.items():
                 for kw in kws:
-                    if self._kw_in_text(kw, art_l):
+                    if kw in art_l:
                         w = 0.8
                         reason = f"(產業關鍵字：{kw})"
                         matched_info.setdefault(ind, []).append((w, reason))
                         break
 
-            # 3️⃣ 對 matched_info 裡的每個產業，先算 sum(weights)，再 cap 到 [-1, +1]
+            # 4️⃣ 計算貢獻值並記錄新聞標題
             for ind, pairs in matched_info.items():
                 total_w = sum(w for (w, _) in pairs)
                 if total_w > 1.0:
@@ -226,114 +242,63 @@ class StockNewsScorer:
                     total_w = -1.0
                 contrib = senti * total_w
                 bucket[ind].append(contrib)
-                # 同時把各原因的貢獻寫進 details
+                industry_articles[ind].append((contrib, title))
                 for (w, reason) in pairs:
                     industry_details[ind].append((reason, senti * w))
 
-        # 計算 0~100 分數
+        # 5️⃣ 只算非零貢獻值再平均，若全是 0.0 就給 50
         scores: Dict[str, float] = {}
         for ind, vals in bucket.items():
-            if not vals:
+            nonzero_vals = [v for v in vals if v != 0.0]
+            if not nonzero_vals:
                 scores[ind] = 50.0
             else:
-                avg = sum(vals) / len(vals)
+                avg = sum(nonzero_vals) / len(nonzero_vals)
                 scores[ind] = round((avg + 1) / 2 * 100, 2)
-        return scores, industry_details
 
-    # ------------------------- 對外接口：將新聞和配對結果一起輸出到 CSV ------------------------- #
-    def score_stocks(self, max_items: int = 200) -> None:
-        # --- 1. 抓新聞原始明細 --- #
-        news_list = self._fetch_articles(max_items)
+        return scores, industry_details, industry_articles
+
+    def score_stocks(self, max_items_per_source: int = 100) -> None:
+        output_dir = "data"
+        os.makedirs(output_dir, exist_ok=True)
+
+        # 1. 抓新聞
+        news_list = self._fetch_articles(max_items_per_source)
         if not news_list:
             print("沒有抓到任何新聞。")
             return
 
-        # 把「新聞明細」寫到 news_list.csv
-        df_news = pd.DataFrame([{
-            "title": item["title"],
-            "description": item["description"]
-        } for item in news_list])
-        df_news.to_csv("news_list.csv", index=False, encoding="utf-8-sig")
-        print(f"已把 {len(df_news)} 篇新聞寫到 news_list.csv。")
+        # 2. 計算各產業分數、細節、以及每篇文章貢獻與標題
+        ind_scores, industry_details, industry_articles = self._score_industries(
+            news_list)
 
-        # --- 2. 用「合併文字」計算各產業情緒分數 --- #
-        combined_texts = [item["combined"] for item in news_list]
-        ind_scores, industry_details = self._score_industries(combined_texts)
+        # 3. 生成「熱門產業 + 各新聞貢獻與標題」的 DataFrame，且只保留 contrib > 0.0
+        hot_records = []
+        for ind, total_score in ind_scores.items():
+            for contrib, title in industry_articles[ind]:
+                if contrib > 0.0:
+                    hot_records.append({
+                        "industry": ind,
+                        "total_score": total_score,
+                        "news_title": title,
+                        "article_score": round(contrib, 2)
+                    })
 
-        # --- 3. 把分數套到每支股票 --- #
-        stock_scores: Dict[str, float] = {}
-        for ind, stocks in self.industry_to_stocks.items():
-            for sid in stocks:
-                stock_scores[sid] = ind_scores[ind]
+        df_hot = (
+            pd.DataFrame(hot_records)
+            .sort_values("total_score", ascending=False)
+            .reset_index(drop=True)
+        )
 
-        # --- 4. 把 matching details 套到每支股票 --- #
-        matched_stocks_details: Dict[str, List[Tuple[str, float]]] = {
-            sid: [] for sid in self.stock_to_industry
-        }
-        for ind, details in industry_details.items():
-            for sid in self.industry_to_stocks[ind]:
-                matched_stocks_details[sid] = details.copy()
-
-        # --- 5. 準備輸出股票分數 & 細節 --- #
-        records = []
-        for sid, score in stock_scores.items():
-            ind = self.stock_to_industry[sid]
-            details_list = matched_stocks_details[sid]
-            if details_list:
-                detail_strs = [
-                    f"{reason}，貢獻={contrib}" for (reason, contrib) in details_list
-                ]
-                detail_field = "；".join(detail_strs)
-                matched_flag = True
-            else:
-                detail_field = ""
-                matched_flag = False
-
-            records.append({
-                "stock_id": sid,
-                "industry": ind,
-                "final_score": score,
-                "matched": matched_flag,
-                "details": detail_field,
-            })
-
-        df_out = pd.DataFrame.from_records(records)
-        df_out.to_csv("stock_scores_with_reasons.csv",
-                      index=False, encoding="utf-8-sig")
-        print(f"已把 {len(df_out)} 檔股票結果寫到 stock_scores_with_reasons.csv。")
-
-        # --- 6. 產生熱門產業與熱門股票報告 --- #
-        # 熱門產業：按分數由高到低排序
-        hot_inds = sorted(ind_scores.items(), key=lambda x: x[1], reverse=True)
-        df_inds = pd.DataFrame(hot_inds, columns=["category", "score"])
-        df_inds.insert(0, "type", "industry")
-        df_inds.rename(columns={"category": "industry_name"}, inplace=True)
-
-        # 熱門股票：按分數由高到低排序
-        hot_stocks = sorted(stock_scores.items(),
-                            key=lambda x: x[1], reverse=True)
-        # 取得公司名稱
-        hot_stock_records = []
-        for sid, sc in hot_stocks:
-            name = self.stock_to_name.get(sid, "")
-            hot_stock_records.append((sid, name, sc))
-        df_stks = pd.DataFrame(hot_stock_records, columns=[
-                               "stock_id", "company_name", "score"])
-        df_stks.insert(0, "type", "stock")
-
-        # 合併成一份報告 CSV
-        df_report = pd.concat([
-            df_inds.rename(columns={"industry_name": "id", "score": "score"}),
-            df_stks.rename(columns={"stock_id": "id", "score": "score"})
-        ], ignore_index=True)
-        df_report.to_csv("hot_report.csv", index=False, encoding="utf-8-sig")
-        print(f"已把熱門產業和熱門股票寫到 hot_report.csv。共 {len(df_report)} 筆。")
-
-        # --- 7. 顯示前 10 筆示範 --- #
-        print("\n=== 前 10 筆熱門產業/股票範例 ===")
-        print(df_report.head(10))
+        hot_csv_path = os.path.join(output_dir, "hot_industry_news.csv")
+        df_hot.to_csv(hot_csv_path, index=False, encoding="utf-8-sig")
+        print(f"已輸出熱門產業新聞分析 → {hot_csv_path}")
 
 
 if __name__ == "__main__":
-    scorer = StockNewsScorer("data/stock_id/stock_id.csv")
-    scorer.score_stocks(max_items=200)
+    # 從 config.yaml 讀取 RSS 來源
+    cfg = load_config()
+    rss_list = cfg.get("rss_sources", [])
+    csv_id_path = cfg.get("paths", {}).get("stock_list")
+    scorer = StockNewsScorer(csv_path=csv_id_path, rss_urls=rss_list)
+    scorer.score_stocks(max_items_per_source=100)

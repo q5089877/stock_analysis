@@ -74,3 +74,7 @@ technical_indicator:
   KD_period: 9
   KD_smooth_k: 3
   KD_smooth_d: 3
+
+rss_sources:
+  - "https://tw.news.yahoo.com/rss/finance"
+  - "https://news.ltn.com.tw/rss/business.xml"
